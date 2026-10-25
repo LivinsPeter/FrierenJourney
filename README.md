@@ -10,7 +10,8 @@ Open `index.html` directly in Chrome or Microsoft Edge. If local file restrictio
 
 - Move: Arrow keys or WASD
 - Talk, inspect, or advance dialogue: E, Enter, or Space
-- Movement pauses during dialogue
+- Battle: A / 1 Attack, S / 2 Spell, P / 3 Potion, R / 4 Run, Escape to run
+- Movement pauses during dialogue and battle
 
 ## Objectives
 
@@ -23,10 +24,11 @@ Talk to Mara in Linden Village, search beside the old shrine on the forest road,
 - Three NPCs, advancing dialogue, quest status, keepsake collection, and a five-gold reward
 - Shared persistent HP, inventory, and item data prepared for battle integration
 - Explicit title, overworld, dialogue, and battle states
+- Integrated Mossback encounter with shared HP/potions, victory rewards, defeat recovery, and escape
 
 ## Limitations
 
-The battle state is only a temporary integration seam and displays “Battle system not connected yet.” There is no battle module, combat, sound, or gamepad support.
+The battle system is a small deterministic prototype with Attack, Spell, Potion, and Run. There is no sound or gamepad support.
 
 ## Manual check list
 
@@ -34,3 +36,6 @@ The battle state is only a temporary integration seam and displays “Battle sys
 - Speak to Mara, advance/close her dialogue, and confirm movement resumes afterward.
 - Walk east to the forest, inspect the keepsake beside the shrine, return west, and speak to Mara again.
 - Confirm the quest status changes to completed and gold increases by five.
+
+- Walk east to the forest beast, approach, and press E/Enter/Space. Use Attack or Spell until victory; confirm HP and gold update and the defeated beast does not respawn.
+- To test Potion and Run, reload after victory, enter battle, take a hit with Attack, use Potion, then Run; approach the beast again to verify it can be retried after escape. Reload and choose Attack repeatedly to test defeat recovery in the village.

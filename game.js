@@ -24,7 +24,8 @@
     persistent: { hp: 30, maxHp: 30, inventory: { potions: 1, gold: 0, items: [] } },
     quest: { state: "not started", keepsakeFound: false },
     area: "village", dialogue: null, notice: "", noticeTime: 0,
-    keys: new Set(), pressed: new Set(), elapsed: 0
+    keys: new Set(), pressed: new Set(), elapsed: 0,
+    battleReturn: null, defeatedEncounters: new Set(), rewardedEncounters: new Set()
   };
 
   // Maps use simple ground identifiers plus separate solid and interaction data.
@@ -69,7 +70,7 @@
   forest.solids.push(box(17*TILE, 6*TILE, 20, 18, "shrine"), box(20*TILE, 6*TILE, 10, 12, "rock"));
   forest.objects.push({ kind: "shrine", x: 17*TILE, y: 6*TILE });
   forest.objects.push({ kind: "keepsake", x: 15*TILE, y: 7*TILE });
-  forest.objects.push({ kind: "beast", x: 11*TILE, y: 7*TILE });
+  forest.objects.push({ kind: "beast", id: "forest-mossback", x: 11*TILE, y: 7*TILE });
   forest.exits.push({ x: 0, y: 6*TILE, w: 10, h: 4*TILE, to: "village", spawn: { x: WORLD_W-30, y: 7*TILE } });
 
   function beginGame() { game.state = "overworld"; sayNotice("Linden Village"); }
@@ -99,8 +100,11 @@
     }
     const beast = area.objects.find(object => object.kind === "beast");
     if (beast && nearPlayer(beast, 25)) {
-      game.state = "battle"; sayNotice("Battle system not connected yet");
-      window.setTimeout(() => { if (game.state === "battle") game.state = "overworld"; }, 1400);
+      if (game.defeatedEncounters.has(beast.id)) {
+        sayNotice("The forest road is quiet.");
+      } else {
+        startBattle(beast);
+      }
       return;
     }
     const keepsake = area.objects.find(object => object.kind === "keepsake");
@@ -116,11 +120,69 @@
     if (exit) { changeArea(exit.to, exit.spawn); return; }
     const object = area.objects.find(item => item.kind === "well" && nearPlayer(item, 24));
     if (object) { openDialogue("Village well", ["The water reflects a little square of sky."]); return; }
-    // Reserved seam for future battle integration; no battle code is loaded here.
-    if (game.area === "forest" && nearPlayer({x: 11*TILE, y: 7*TILE}, 25)) {
-      game.state = "battle"; sayNotice("Battle system not connected yet");
-      window.setTimeout(() => { if (game.state === "battle") game.state = "overworld"; }, 1400);
+  }
+  function startBattle(enemy) {
+    const battle = window.Battle;
+    if (!battle || typeof battle.start !== "function") {
+      sayNotice("Battle module unavailable");
+      return;
     }
+    game.battleReturn = { area: game.area, x: game.player.x, y: game.player.y, encounterId: enemy.id };
+    const status = battle.start({
+      player: { name: "Wandering Mage", hp: game.persistent.hp, maxHp: game.persistent.maxHp, magic: 8, attack: 4 },
+      enemy: { name: "Mossback", hp: 18, maxHp: 18, attack: 8 },
+      inventory: { potions: game.persistent.inventory.potions },
+      reward: { gold: 2 }
+    });
+    game.state = "battle";
+    if (status !== "active") finishBattle();
+  }
+  function finishBattle() {
+    const battle = window.Battle;
+    const result = battle && typeof battle.getResult === "function" ? battle.getResult() : null;
+    if (!result || !game.battleReturn) return;
+
+    game.persistent.hp = result.playerHp;
+    game.persistent.maxHp = result.maxPlayerHp;
+    game.persistent.inventory.potions = result.potionsRemaining;
+    const returnPoint = game.battleReturn;
+    if (result.status === "victory") {
+      game.defeatedEncounters.add(returnPoint.encounterId);
+      if (!game.rewardedEncounters.has(returnPoint.encounterId)) {
+        const reward = result.reward || {};
+        game.persistent.inventory.gold += Number(reward.gold) || 0;
+        game.rewardedEncounters.add(returnPoint.encounterId);
+      }
+      game.area = returnPoint.area;
+      game.player.x = returnPoint.x;
+      game.player.y = returnPoint.y;
+      sayNotice("Victory! The road is quiet.");
+    } else if (result.status === "defeat") {
+      game.area = "village";
+      game.player.x = 6 * TILE + 4;
+      game.player.y = 8 * TILE + 3;
+      game.persistent.hp = Math.max(1, Math.ceil(game.persistent.maxHp / 3));
+      sayNotice("You were defeated. Rest in the village, then try again.");
+    } else {
+      game.area = returnPoint.area;
+      game.player.x = returnPoint.x;
+      game.player.y = returnPoint.y;
+      sayNotice("You escaped back to the road.");
+    }
+    game.battleReturn = null;
+    game.state = "overworld";
+  }
+  function handleBattleKey(code) {
+    const actions = {
+      KeyA: "attack", Digit1: "attack", Numpad1: "attack",
+      KeyS: "spell", Digit2: "spell", Numpad2: "spell",
+      KeyP: "potion", Digit3: "potion", Numpad3: "potion",
+      KeyR: "run", Digit4: "run", Numpad4: "run", Escape: "run"
+    };
+    const action = actions[code];
+    if (!action || typeof window.Battle?.handleAction !== "function") return;
+    window.Battle.handleAction(action);
+    if (window.Battle.getStatus() !== "active") finishBattle();
   }
   function changeArea(name, spawn) {
     game.area = name; game.player.x = spawn.x; game.player.y = spawn.y;
@@ -230,13 +292,14 @@
     const camX=Math.max(0,Math.min(WORLD_W-240,Math.round(player.x+player.w/2-120)));
     const camY=Math.max(0,Math.min(WORLD_H-160,Math.round(player.y+player.h/2-80)));
     const area=areas[game.area];drawGround(area,camX,camY);
-    area.objects.forEach(object=>drawObject(object,camX,camY));
+    area.objects.forEach(object=>{
+      if (object.kind !== "beast" || !game.defeatedEncounters.has(object.id)) drawObject(object,camX,camY);
+    });
     area.solids.filter(s=>s.type==="tree").forEach(s=>drawTree(s,camX,camY));
     area.npcs.forEach(npc=>drawPerson(npc,camX,camY));drawPerson(player,camX,camY,true);
     // Area name sits in the top corner; shared player data remains available for battle integration.
     ctx.fillStyle=COLORS.ink;ctx.fillRect(168,3,69,12);ctx.fillStyle=COLORS.cream;ctx.textAlign="right";ctx.textBaseline="top";ctx.font="6px monospace";ctx.fillText(area.name,234,6);
     drawHud();if(game.state==="dialogue")drawDialogue();
-    if(game.state==="battle"){drawPanel(48,61,144,34);ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillStyle=COLORS.cream;ctx.font="7px monospace";ctx.fillText(game.notice,120,78);}
   }
   function renderTitle() {
     ctx.fillStyle="#263d35";ctx.fillRect(0,0,240,160);ctx.fillStyle="#78918a";ctx.fillRect(0,0,240,76);ctx.fillStyle="#c5b98d";ctx.fillRect(180,24,12,12);
@@ -248,10 +311,16 @@
   function update(dt) {
     game.elapsed+=dt;game.noticeTime=Math.max(0,game.noticeTime-dt);
     if(game.state==="overworld") updateMovement(dt);
+    else if(game.state==="battle") {
+      window.Battle.update(dt);
+      if(window.Battle.getStatus() !== "active") finishBattle();
+    }
   }
   function frame(time) {
     const dt=Math.min((time-game.lastTime)/1000||0,.05);game.lastTime=time;update(dt);
-    if(game.state==="title")renderTitle();else drawWorld();
+    if(game.state==="title")renderTitle();
+    else if(game.state==="battle")window.Battle.render(ctx);
+    else drawWorld();
     game.pressed.clear();requestAnimationFrame(frame);
   }
   window.addEventListener("keydown",event=>{
@@ -263,6 +332,7 @@
     if (wasDown) return;
     const action=code==="KeyE"||code==="Enter"||code==="Space";
     if(game.state==="title"&&action){beginGame();return;}
+    if(game.state==="battle"){handleBattleKey(code);return;}
     if(game.state==="dialogue"&&action){
       if(game.dialogue.index+1<game.dialogue.lines.length)game.dialogue.index++;else endDialogue();return;
     }
